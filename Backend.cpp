@@ -8,8 +8,6 @@
 #include <cmath>
 #include <vector>
 #include <mutex>
-#include <Qcreator> 
-
 #include <fstream> // For file handling
 
 using namespace mavsdk;

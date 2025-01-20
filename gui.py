@@ -10,24 +10,61 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import numpy as np
+import tkintermapview
+import os
+from threading import Timer
 
 class AscendOS:
+    # Color scheme
+    SIDEBAR_BG = "#d1cfc9"       
+    BUTTON_BG = "#4c667f"       
+    BUTTON_HOVER = "#5d7b99"    
+    TEXT_DARK = "#0f1a2b"        
+    VIDEO_BG = "#4c667f"         
+    CONTENT_BG = "#ffffff"      
+    
     def __init__(self):
         self.window = tk.Tk()
         self.window.title("AscendOS")
         self.window.geometry("1200x550")
         
+        # Set consistent style for all buttons
+        self.style = ttk.Style()
+        self.style.theme_use('clam')
+        self.style.configure('Custom.TButton',
+                           background=self.BUTTON_BG,
+                           foreground=self.CONTENT_BG,  # White text
+                           relief="flat",
+                           font=('Arial', 10),
+                           padding=8)
+        
         # Initialize state variables
         self.is_playing = False
         self.cap = None
+        self.current_latitude = None
+        self.current_longitude = None
+        self.position_history = []
+        self.trail_path = None
+        self.first_real_position = False
         
         # Create frames
-        self.create_frames()
+        self.left_frame = tk.Frame(self.window, width=200, bg=self.SIDEBAR_BG)
+        self.left_frame.pack(side="left", fill="y")
+        self.left_frame.pack_propagate(False)
         
-        # Setup UI components
+        # Main content frames
+        self.video_frame = tk.Frame(self.window, bg=self.VIDEO_BG)
+        self.graphs_frame = tk.Frame(self.window, bg=self.CONTENT_BG)
+        self.map_frame = tk.Frame(self.window, bg=self.CONTENT_BG)
+        
+        # Setup all components
         self.setup_sidebar()
         self.setup_video_page()
         self.setup_graphs_page()
+        self.setup_map_page()
+        
+        # Start with video frame visible
+        self.video_frame.pack(side="right", fill="both", expand=True)
         
         # Initialize graphs data
         self.graph1_data = {'x': [], 'y': []}
@@ -48,9 +85,61 @@ class AscendOS:
         # Main content frames
         self.video_frame = tk.Frame(self.window, bg="#4c667f")
         self.graphs_frame = tk.Frame(self.window, bg="#ffffff")
+        self.map_frame = tk.Frame(self.window, bg="#ffffff")
+        
+        # Setup all components
+        self.setup_sidebar()
+        self.setup_video_page()
+        self.setup_graphs_page()
+        self.setup_map_page()
         
         # Start with video frame visible
         self.video_frame.pack(side="right", fill="both", expand=True)
+        
+        # Create frames
+        self.create_frames()
+        
+        # Setup UI components
+        self.setup_sidebar()
+        self.setup_video_page()
+        self.setup_graphs_page()
+        self.setup_map_page()
+        
+        # Initialize graphs data
+        self.graph1_data = {'x': [], 'y': []}
+        self.graph2_data = {'x': [], 'y': []}
+        
+        # Start GUI updates
+        self.update_gui()
+        
+        # Set up window close protocol
+        self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def create_frames(self):
+        # Left sidebar
+        self.left_frame = tk.Frame(self.window, width=200, bg="#d1cfc9")
+        self.left_frame.pack(side="left", fill="y")
+        self.left_frame.pack_propagate(False)
+        
+        # Main content frames
+        self.video_frame = tk.Frame(self.window, bg="#4c667f")
+        self.graphs_frame = tk.Frame(self.window, bg="#ffffff")
+        self.map_frame = tk.Frame(self.window, bg="#ffffff")
+        
+        # Start with video frame visible
+        self.video_frame.pack(side="right", fill="both", expand=True)
+
+    def setup_battery_frame(self):
+        battery_frame = tk.Frame(self.left_frame, bg=self.SIDEBAR_BG)
+        battery_frame.pack(pady=(0, 10))
+
+        self.battery_icon = tk.Canvas(battery_frame, width=64, height=26, highlightthickness=0, bg=self.SIDEBAR_BG)
+        self.battery_icon.pack()
+        self.update_battery_icon(25)  # Default value
+
+        self.battery_label = tk.Label(battery_frame, text="25% | 12.5V", 
+                                    font=("Arial", 14), bg="#d1cfc9", fg="#0f1a2b")
+        self.battery_label.pack(side="left")
 
     def setup_sidebar(self):
         # Logo
@@ -58,49 +147,34 @@ class AscendOS:
             logo_image = Image.open("ASCENDOS.png")
             logo_image = logo_image.resize((170, 100))
             logo_image = ImageTk.PhotoImage(logo_image)
-            title_label = tk.Label(self.left_frame, image=logo_image, bg="#d1cfc9")
+            title_label = tk.Label(self.left_frame, image=logo_image, bg=self.SIDEBAR_BG)
             title_label.image = logo_image
             title_label.pack(pady=(40, 10))
         except FileNotFoundError:
-            title_label = tk.Label(self.left_frame, text="AscendOS", font=("Arial", 30), bg="#d1cfc9", fg="#0f1a2b")
+            title_label = tk.Label(self.left_frame, text="AscendOS", 
+                                 font=("Arial", 30), bg=self.SIDEBAR_BG, 
+                                 fg=self.TEXT_DARK)
             title_label.pack(pady=(40, 10))
 
-        # Page navigation buttons
-        page_buttons_frame = tk.Frame(self.left_frame, bg="#d1cfc9")
-        page_buttons_frame.pack(pady=(10, 20))
+        # Create a frame for the navigation buttons
+        nav_buttons_frame = tk.Frame(self.left_frame, bg=self.SIDEBAR_BG)
+        nav_buttons_frame.pack(pady=(10, 20), fill="x", padx=10)
 
-        # Update button styles to be solid
-        button_style = {
-            'bg': "#4c667f",
-            'fg': "white",
-            'relief': "flat",
-            'padx': 15,
-            'pady': 8,
-            'font': ('Arial', 10),
-            'width': 10,  # Set fixed width for consistency
-            'bd': 0  # Remove border
-        }
+        # Create buttons using ttk
+        self.video_page_btn = ttk.Button(nav_buttons_frame, text="Video Feed",
+                                     command=lambda: self.switch_page(self.video_frame),
+                                     style='Custom.TButton')
+        self.video_page_btn.pack(fill="x", pady=2)
 
-        self.video_page_btn = tk.Button(page_buttons_frame, text="Video Feed",
-                                      command=lambda: self.switch_page(self.video_frame),
-                                      **button_style)
-        self.video_page_btn.pack(side="left", padx=5)
+        self.graphs_page_btn = ttk.Button(nav_buttons_frame, text="Graphs",
+                                      command=lambda: self.switch_page(self.graphs_frame),
+                                      style='Custom.TButton')
+        self.graphs_page_btn.pack(fill="x", pady=2)
 
-        self.graphs_page_btn = tk.Button(page_buttons_frame, text="Graphs",
-                                       command=lambda: self.switch_page(self.graphs_frame),
-                                       **button_style)
-        self.graphs_page_btn.pack(side="left", padx=5)
-
-        # Add hover effects
-        def on_enter(e):
-            e.widget['background'] = '#5d7b99'
-
-        def on_leave(e):
-            e.widget['background'] = '#4c667f'
-
-        for btn in [self.video_page_btn, self.graphs_page_btn]:
-            btn.bind("<Enter>", on_enter)
-            btn.bind("<Leave>", on_leave)
+        self.map_page_btn = ttk.Button(nav_buttons_frame, text="Map View",
+                                   command=lambda: self.switch_page(self.map_frame),
+                                   style='Custom.TButton')
+        self.map_page_btn.pack(fill="x", pady=2)
 
         # Battery frame
         self.setup_battery_frame()
@@ -118,31 +192,155 @@ class AscendOS:
         self.setup_gps_info()
 
     def setup_battery_frame(self):
-        battery_frame = tk.Frame(self.left_frame, bg="#d1cfc9")
+        battery_frame = tk.Frame(self.left_frame, bg=self.SIDEBAR_BG)
         battery_frame.pack(pady=(0, 10))
 
-        self.battery_icon = tk.Canvas(battery_frame, width=64, height=26, highlightthickness=0, bg="#d1cfc9")
+        self.battery_icon = tk.Canvas(battery_frame, width=64, height=26, 
+                                    highlightthickness=0, bg=self.SIDEBAR_BG)
         self.battery_icon.pack()
         self.update_battery_icon(25)  # Default value
 
         self.battery_label = tk.Label(battery_frame, text="25% | 12.5V", 
-                                    font=("Arial", 14), bg="#d1cfc9", fg="#0f1a2b")
+                                    font=("Arial", 14), bg=self.SIDEBAR_BG, 
+                                    fg=self.TEXT_DARK)
         self.battery_label.pack(side="left")
 
     def setup_rssi(self):
-        rssi_label = tk.Label(self.left_frame, text="RSSI:", font=("Arial", 14), bg="#d1cfc9", fg="#0f1a2b")
+        rssi_label = tk.Label(self.left_frame, text="RSSI:", 
+            font=("Arial", 14), bg=self.SIDEBAR_BG, fg=self.TEXT_DARK)
         rssi_label.pack()
-        self.rssi_canvas = tk.Canvas(self.left_frame, width=100, height=40, highlightthickness=0, bg="#d1cfc9")
+        self.rssi_canvas = tk.Canvas(self.left_frame, width=100, height=40, 
+            highlightthickness=0, bg=self.SIDEBAR_BG)
         self.rssi_canvas.pack(pady=(0, 10), anchor="center")
-        self.update_rssi_icon(3)  # Default value
+        self.update_rssi_icon(3)
 
     def setup_connection_controls(self):
         # Connection controls container
-        conn_frame = tk.Frame(self.left_frame, bg="#d1cfc9")
+        conn_frame = tk.Frame(self.left_frame, bg=self.SIDEBAR_BG)
         conn_frame.pack(pady=(0, 10))
 
         # IP entry
-        ip_label = tk.Label(conn_frame, text="IP:", bg="#d1cfc9", fg="#0f1a2b", font=('Arial', 10))
+        ip_label = tk.Label(conn_frame, text="IP:", bg=self.SIDEBAR_BG, fg=self.TEXT_DARK, font=('Arial', 10))
+        ip_label.pack()
+        self.ip_entry = tk.Entry(conn_frame, 
+                                highlightthickness=1, 
+                                highlightcolor=self.TEXT_DARK,
+                                background=self.TEXT_DARK,
+                                foreground=self.CONTENT_BG,
+                                insertbackground=self.CONTENT_BG,
+                                relief="flat",
+                                width=20, 
+                                justify='center')
+        self.ip_entry.pack(pady=(0, 10))
+        self.ip_entry.insert(0, "192.168.144.25")
+
+        # RTSP entry
+        rtsp_label = tk.Label(conn_frame, text="RTSP:", bg=self.SIDEBAR_BG, fg=self.TEXT_DARK, font=('Arial', 10))
+        rtsp_label.pack()
+        self.rtsp_entry = tk.Entry(conn_frame, 
+                                  highlightthickness=1, 
+                                  highlightcolor=self.TEXT_DARK,
+                                  background=self.TEXT_DARK,
+                                  foreground=self.CONTENT_BG,
+                                  insertbackground=self.CONTENT_BG,
+                                  relief="flat",
+                                  width=20, 
+                                  justify='center')
+        self.rtsp_entry.pack(pady=(0, 10))
+        self.rtsp_entry.insert(0, "8554")
+
+        # Button container for media controls
+        media_container = tk.Frame(conn_frame, bg=self.SIDEBAR_BG)
+        media_container.pack(pady=5)
+
+        # Connect button with updated style
+        connect_style = {
+            'background': self.TEXT_DARK,
+            'foreground': self.CONTENT_BG,
+            'activebackground': self.BUTTON_HOVER,
+            'activeforeground': self.CONTENT_BG,
+            'relief': "flat",
+            'padx': 20,
+            'pady': 10,
+            'font': ('Arial', 10, 'bold'),
+            'width': 12,
+            'bd': 0,
+            'cursor': 'hand2',
+            'highlightthickness': 0
+        }
+
+        self.connect_button = tk.Button(media_container, 
+            text="Connect", 
+            command=self.connect_to_drone,
+            **connect_style)
+        self.connect_button.pack(pady=5)
+
+        # Play/Pause button in its own container
+        play_container = tk.Frame(media_container, bg=self.SIDEBAR_BG)
+        play_container.pack(pady=5)
+
+        self.play_button = tk.Canvas(play_container, 
+            width=36, height=36,
+            bg=self.TEXT_DARK, 
+            highlightthickness=0,
+            cursor='hand2')
+        self.play_button.pack()
+
+    def setup_flight_mode(self):
+        flight_modes = ["Manual", "Auto", "Stabilize"]
+        self.flight_mode_var = tk.StringVar()
+
+        flight_mode_label = tk.Label(self.left_frame, text="Flight Mode:", 
+            bg=self.SIDEBAR_BG, fg=self.TEXT_DARK)
+        flight_mode_label.pack(pady=(10, 5))
+
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("Custom.TCombobox",
+            fieldbackground=self.TEXT_DARK,
+            background=self.TEXT_DARK,
+            foreground=self.CONTENT_BG,
+            borderwidth=0,
+            relief="flat",
+            arrowcolor=self.CONTENT_BG)
+
+        self.flight_mode_dropdown = ttk.Combobox(self.left_frame, 
+            textvariable=self.flight_mode_var,
+            values=flight_modes, 
+            style="Custom.TCombobox",
+            justify='center')
+        self.flight_mode_dropdown.pack(pady=(0, 20), padx=5, fill="x")
+        self.flight_mode_dropdown.current(0)
+
+    def setup_gps_info(self):
+        self.gps_sats_label = tk.Label(self.left_frame, text="GPS SATS: 0", 
+            font=("Arial", 14), bg=self.SIDEBAR_BG, fg=self.TEXT_DARK)
+        self.gps_sats_label.pack()
+
+        self.gps_fix_label = tk.Label(self.left_frame, text="GPS Fix Type: 0", 
+            font=("Arial", 14), bg=self.SIDEBAR_BG, fg=self.TEXT_DARK)
+        self.gps_fix_label.pack()
+
+    def setup_battery_frame(self):
+        battery_frame = tk.Frame(self.left_frame, bg=self.SIDEBAR_BG)
+        battery_frame.pack(pady=(0, 10))
+
+        self.battery_icon = tk.Canvas(battery_frame, width=64, height=26, 
+            highlightthickness=0, bg=self.SIDEBAR_BG)
+        self.battery_icon.pack()
+        self.update_battery_icon(25)  # Default value
+
+        self.battery_label = tk.Label(battery_frame, text="25% | 12.5V", 
+            font=("Arial", 14), bg=self.SIDEBAR_BG, fg=self.TEXT_DARK)
+        self.battery_label.pack(side="left")  # Default value
+
+    def setup_connection_controls(self):
+        # Connection controls container
+        conn_frame = tk.Frame(self.left_frame, bg=self.SIDEBAR_BG)
+        conn_frame.pack(pady=(0, 10))
+
+        # IP entry
+        ip_label = tk.Label(conn_frame, text="IP:", bg=self.SIDEBAR_BG, fg="#0f1a2b", font=('Arial', 10))
         ip_label.pack()
         self.ip_entry = tk.Entry(conn_frame, 
                                 highlightthickness=1, 
@@ -157,7 +355,7 @@ class AscendOS:
         self.ip_entry.insert(0, "192.168.144.25")
 
         # RTSP entry
-        rtsp_label = tk.Label(conn_frame, text="RTSP:", bg="#d1cfc9", fg="#0f1a2b", font=('Arial', 10))
+        rtsp_label = tk.Label(conn_frame, text="RTSP:", bg= self.SIDEBAR_BG, fg="#0f1a2b", font=('Arial', 10))
         rtsp_label.pack()
         self.rtsp_entry = tk.Entry(conn_frame, 
                                   highlightthickness=1, 
@@ -172,7 +370,7 @@ class AscendOS:
         self.rtsp_entry.insert(0, "8554")
 
         # Button container for media controls
-        media_container = tk.Frame(conn_frame, bg="#d1cfc9")
+        media_container = tk.Frame(conn_frame, bg=self.SIDEBAR_BG)
         media_container.pack(pady=5)
 
         # Connect button with updated style
@@ -198,7 +396,7 @@ class AscendOS:
         self.connect_button.pack(pady=5)  # Stack vertically
 
         # Play/Pause button in its own container
-        play_container = tk.Frame(media_container, bg="#d1cfc9")
+        play_container = tk.Frame(media_container, bg=self.SIDEBAR_BG)
         play_container.pack(pady=5)
 
         self.play_button = tk.Canvas(play_container, 
@@ -238,56 +436,11 @@ class AscendOS:
             self.play_button.create_rectangle(23, 8, 29, 28, 
                                             fill="white", outline="white")
 
-    def toggle_playback(self, event=None):
-        self.is_playing = not self.is_playing
-        self.draw_play_button()
-        
-        if self.is_playing:
-            print("Starting stream...")
-            try:
-                # Initialize video capture
-                if not self.cap:
-                    ip = self.ip_entry.get()
-                    rtsp = self.rtsp_entry.get()
-                    rtsp_url = f"rtsp://{ip}:{rtsp}/main.264"
-                    self.cap = cv2.VideoCapture(rtsp_url)
-                    
-                    if not self.cap.isOpened():
-                        raise Exception("Failed to open video stream")
-                    
-                    # Optimize capture settings for low latency
-                    self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                    self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'H264'))
-                    self.cap.set(cv2.CAP_PROP_FPS, 30)
-                    
-                    # Additional settings to minimize latency
-                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                
-                # Start the video update loop
-                self.update_video_frame()
-                
-            except Exception as e:
-                print(f"Error starting stream: {e}")
-                self.is_playing = False
-                self.draw_play_button()
-                tk.messagebox.showerror("Error", f"Failed to start video stream: {str(e)}")
-        else:
-            print("Stopping stream...")
-            # Stop the video stream
-            if self.cap:
-                self.cap.release()
-                self.cap = None
-            
-            # Clear the video display
-            self.video_label.config(image='')
-            self.video_label.image = None
-
     def setup_flight_mode(self):
         flight_modes = ["Manual", "Auto", "Stabilize"]
         self.flight_mode_var = tk.StringVar()
 
-        flight_mode_label = tk.Label(self.left_frame, text="Flight Mode:", bg="#d1cfc9", fg="#0f1a2b")
+        flight_mode_label = tk.Label(self.left_frame, text="Flight Mode:", bg=self.SIDEBAR_BG, fg=self.TEXT_DARK)
         flight_mode_label.pack(pady=(10, 5))
 
         style = ttk.Style()
@@ -310,23 +463,110 @@ class AscendOS:
 
     def setup_gps_info(self):
         self.gps_sats_label = tk.Label(self.left_frame, text="GPS SATS: 0", 
-                                      font=("Arial", 14), bg="#d1cfc9", fg="#0f1a2b")
+                                      font=("Arial", 14), bg=self.SIDEBAR_BG, fg="#0f1a2b")
         self.gps_sats_label.pack()
 
         self.gps_fix_label = tk.Label(self.left_frame, text="GPS Fix Type: 0", 
-                                     font=("Arial", 14), bg="#d1cfc9", fg="#0f1a2b")
+                                     font=("Arial", 14), bg=self.SIDEBAR_BG, fg="#0f1a2b")
         self.gps_fix_label.pack()
 
     def setup_video_page(self):
         self.video_label = tk.Label(self.video_frame)
         self.video_label.pack(fill="both", expand=True)
 
+    def setup_map_page(self):
+        # Create frame for coordinates display
+        coords_frame = tk.Frame(self.map_frame, bg="#ffffff")
+        coords_frame.pack(fill="x", pady=5)
+
+        # Create label for coordinates
+        self.coords_label = tk.Label(coords_frame,
+                                   text="Current Position: 0.000000°, 0.000000°",
+                                   font=('Arial', 12),
+                                   bg="#ffffff")
+        self.coords_label.pack(pady=5)
+
+        # Add clear trail button
+        self.clear_trail_btn = tk.Button(coords_frame,
+                                       text="Clear Trail",
+                                       command=self.clear_trail,
+                                       bg="#0f1a2b",
+                                       fg="white",
+                                       font=('Arial', 10))
+        self.clear_trail_btn.pack(pady=5)
+
+        # Create map widget
+        self.map_widget = tkintermapview.TkinterMapView(self.map_frame, width=800, height=600, corner_radius=0)
+        self.map_widget.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Set initial map position
+        self.map_widget.set_position(0, 0)  # Default position
+        self.map_widget.set_zoom(15)
+
+        # Create marker for drone position
+        self.drone_marker = None
+        # Initialize trail path
+        self.trail_path = None
+        self.update_map_position()
+
+    def clear_trail(self):
+        """Clear the trail history and remove it from the map"""
+        if self.trail_path:
+            self.trail_path.delete()
+            self.trail_path = None
+        self.position_history = []
+
+    def update_map_position(self):
+        """Update the map with current coordinates"""
+        try:
+            # Update coordinates label
+            self.coords_label.config(
+                text=f"Current Position: {self.current_latitude:.6f}°, {self.current_longitude:.6f}°"
+            )
+
+            # Add current position to history if it's different from the last position
+            current_pos = (self.current_latitude, self.current_longitude)
+            if not self.position_history or current_pos != self.position_history[-1]:
+                self.position_history.append(current_pos)
+
+                # Limit trail length if needed (e.g., keep last 1000 points)
+                if len(self.position_history) > 1000:
+                    self.position_history.pop(0)
+
+            # Update or create drone marker
+            if self.drone_marker:
+                self.drone_marker.set_position(self.current_latitude, self.current_longitude)
+            else:
+                self.drone_marker = self.map_widget.set_marker(
+                    self.current_latitude,
+                    self.current_longitude,
+                    text="Drone"
+                )
+
+            # Update or create trail path
+            if len(self.position_history) > 1:
+                if self.trail_path:
+                    self.trail_path.delete()
+                self.trail_path = self.map_widget.set_path(self.position_history, 
+                                                         color="red",
+                                                         width=2)
+
+            # Center map on drone position
+            self.map_widget.set_position(self.current_latitude, self.current_longitude)
+
+        except Exception as e:
+            print(f"Error updating map position: {e}")
+
+    def refresh_map(self):
+        """Refresh the map with current coordinates"""
+        self.update_map_position()
+
     def setup_graphs_page(self):
         # Main container with background color
-        self.graphs_frame.configure(bg="#d1cfc9")
+        self.graphs_frame.configure(bg=self.SIDEBAR_BG)
         
         # Container for graphs with padding
-        graphs_container = tk.Frame(self.graphs_frame, bg="#d1cfc9")
+        graphs_container = tk.Frame(self.graphs_frame, bg=self.SIDEBAR_BG)
         graphs_container.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Create frames for each graph
@@ -388,18 +628,6 @@ class AscendOS:
             btn.bind("<Enter>", on_enter)
             btn.bind("<Leave>", on_leave)
 
-        # Add hover effects
-        def on_enter(e):
-            e.widget['background'] = '#1a2738'
-
-        def on_leave(e):
-            e.widget['background'] = '#0f1a2b'
-
-        for btn in [load_btn, export_btn]:
-            btn.bind("<Enter>", on_enter)
-            btn.bind("<Leave>", on_leave)
-        export_btn.pack(side="left", padx=5)
-
         # Create frame for matplotlib
         plot_frame = tk.Frame(parent_frame, bg="#ffffff")
         plot_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
@@ -445,6 +673,51 @@ class AscendOS:
         else:
             self.fig2, self.ax2, self.canvas2 = fig, ax, canvas
 
+    def toggle_playback(self, event=None):
+        self.is_playing = not self.is_playing
+        self.draw_play_button()
+        
+        if self.is_playing:
+            print("Starting stream...")
+            try:
+                # Initialize video capture
+                if not self.cap:
+                    ip = self.ip_entry.get()
+                    rtsp = self.rtsp_entry.get()
+                    rtsp_url = f"rtsp://{ip}:{rtsp}/main.264"
+                    self.cap = cv2.VideoCapture(rtsp_url)
+                    
+                    if not self.cap.isOpened():
+                        raise Exception("Failed to open video stream")
+                    
+                    # Optimize capture settings for low latency
+                    self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'H264'))
+                    self.cap.set(cv2.CAP_PROP_FPS, 30)
+                    
+                    # Additional settings to minimize latency
+                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                
+                # Start the video update loop
+                self.update_video_frame()
+                
+            except Exception as e:
+                print(f"Error starting stream: {e}")
+                self.is_playing = False
+                self.draw_play_button()
+                tk.messagebox.showerror("Error", f"Failed to start video stream: {str(e)}")
+        else:
+            print("Stopping stream...")
+            # Stop the video stream
+            if self.cap:
+                self.cap.release()
+                self.cap = None
+            
+            # Clear the video display
+            self.video_label.config(image='')
+            self.video_label.image = None
+
     def load_graph_data(self, graph_num):
         try:
             file_path = filedialog.askopenfilename(
@@ -461,7 +734,7 @@ class AscendOS:
                     line = line.strip()
                     if line and '|' in line:
                         try:
-                            x_str, y_str = line.split('|', 1)  # Split on first occurrence only
+                            x_str, y_str = line.split('|', 1)
                             x = float(x_str.strip())
                             y = float(y_str.strip())
                             x_data.append(x)
@@ -473,10 +746,6 @@ class AscendOS:
             if not x_data or not y_data:
                 tk.messagebox.showwarning("Warning", "No valid data points found in file")
                 return
-
-            print(f"Loaded {len(x_data)} data points for graph {graph_num}")
-            print(f"X range: {min(x_data)} to {max(x_data)}")
-            print(f"Y range: {min(y_data)} to {max(y_data)}")
 
             # Update data storage
             if graph_num == 1:
@@ -490,7 +759,7 @@ class AscendOS:
             tk.messagebox.showerror("Error", "File not found")
         except Exception as e:
             tk.messagebox.showerror("Error", f"Error loading data: {str(e)}")
-            print(f"Error details: {e}")  # Detailed error in console
+            print(f"Error details: {e}")
 
     def export_graph_data(self, graph_num):
         data = self.graph1_data if graph_num == 1 else self.graph2_data
@@ -557,22 +826,14 @@ class AscendOS:
                 fig.tight_layout()
                 canvas.draw()
                 
-                print(f"Graph {graph_num} updated successfully")
-                print(f"X range plotted: {min(data['x'])} to {max(data['x'])}")
-                print(f"Y range plotted: {min(data['y'])} to {max(data['y'])}")
-            
         except Exception as e:
             print(f"Error updating graph: {e}")
             import traceback
-            print(traceback.format_exc())  # Print full traceback
+            print(traceback.format_exc())
             tk.messagebox.showerror("Error", f"Error updating graph: {str(e)}")
 
-    def switch_page(self, page_frame):
-        self.video_frame.pack_forget()
-        self.graphs_frame.pack_forget()
-        page_frame.pack(side="right", fill="both", expand=True)
-
     def update_battery_icon(self, percentage):
+        self.battery_icon.delete("all")
         self.battery_icon.create_rectangle(58, 8, 62, 18, fill="#dfe8f7", outline="#0f1a2b")
         fill_width = int(56 * (percentage / 100))
         self.battery_icon.create_rectangle(2, 2, 2 + fill_width, 24, fill="#4b637b", outline="#0f1a2b")
@@ -581,10 +842,12 @@ class AscendOS:
             self.battery_icon.create_rectangle(58, 8, 62, 18, fill="#4b637b")
 
     def update_rssi_icon(self, strength):
+        self.rssi_canvas.delete("all")
         for i in range(5):
             fill = "#0f1a2b" if i < strength else "#959799"
             outline = "#0f1a2b" if i < strength else "#959799"
-            self.rssi_canvas.create_rectangle(5 + i * 15, 35 - i * 6, 15 + i * 15, 55, fill=fill, outline=outline)
+            self.rssi_canvas.create_rectangle(5 + i * 15, 35 - i * 6, 15 + i * 15, 55, 
+                                           fill=fill, outline=outline)
 
     def get_server_data(self, file_path="output.txt"):
         # Default random values for variables
@@ -773,6 +1036,14 @@ class AscendOS:
         data = self.get_server_data()
         battery_percentage, rssi_strength, gps_sats, gps_fix, longitude, latitude, altitude, roll, pitch, yaw, battery_voltages, total_voltage = data
 
+        # Update current position for map
+        self.current_latitude = latitude
+        self.current_longitude = longitude
+        
+        # Update map if map page is visible
+        if self.map_frame.winfo_ismapped():
+            self.update_map_position()
+        
         battery_percentage = round(battery_percentage, 2)
         self.update_battery_icon(battery_percentage)
         self.battery_label.config(text=f"{battery_percentage}% | {total_voltage:.2f}V")
@@ -783,6 +1054,19 @@ class AscendOS:
         self.gps_fix_label.config(text=f"GPS Fix Type: {gps_fix}")
         
         self.window.after(100, self.update_gui)
+
+    def switch_page(self, page_frame):
+        """Switch between different pages/views"""
+        # Hide all content frames
+        for frame in [self.video_frame, self.graphs_frame, self.map_frame]:
+            frame.pack_forget()
+            
+        # Show the selected frame
+        page_frame.pack(side="right", fill="both", expand=True)
+        
+        # If switching to map page, update position
+        if page_frame == self.map_frame and self.current_latitude is not None:
+            self.update_map_position()
 
     def on_closing(self):
         if self.cap is not None and self.cap.isOpened():
