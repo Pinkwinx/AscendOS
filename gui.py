@@ -21,7 +21,7 @@ class AscendOS:
     BUTTON_HOVER = "#5d7b99"    
     TEXT_DARK = "#0f1a2b"        
     VIDEO_BG = "#4c667f"         
-    CONTENT_BG = "#ffffff"      
+    CONTENT_BG = "#ffffff"       # White for content background
     
     def __init__(self):
         self.window = tk.Tk()
