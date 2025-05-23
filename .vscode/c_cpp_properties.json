@@ -3,9 +3,10 @@
         {
             "name": "Mac",
             "includePath": [
-                "${workspaceFolder}/**",
-                "/opt/homebrew/include/**", // General Homebrew includes
-                "/opt/homebrew/Cellar/mavsdk/2.12.9_1/include/**" // MAVSDK specific includes
+                "/usr/local/opt/qt/include",
+                "/usr/local/opt/qt/include/QtWidgets",
+                "/usr/local/opt/qt/include/QtGui",
+                "/usr/local/opt/qt/include/QtCore"
             ],
             "defines": [],
             "macFrameworkPath": [],

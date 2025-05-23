@@ -1,0 +1,3 @@
+# Hashes of file build rules.
+2dec92bc4806504e4d447854b77ae225 AscendOS_autogen/timestamp
+ba4b3fbabd79881b0e3e893245acb679 CMakeFiles/AscendOS_autogen

@@ -1,0 +1,5 @@
+/Users/marianguyen/Documents/GitHub/AscendOS/build/CMakeFiles/AscendOS.dir
+/Users/marianguyen/Documents/GitHub/AscendOS/build/CMakeFiles/edit_cache.dir
+/Users/marianguyen/Documents/GitHub/AscendOS/build/CMakeFiles/rebuild_cache.dir
+/Users/marianguyen/Documents/GitHub/AscendOS/build/CMakeFiles/AscendOS_autogen_timestamp_deps.dir
+/Users/marianguyen/Documents/GitHub/AscendOS/build/CMakeFiles/AscendOS_autogen.dir
